@@ -24,16 +24,12 @@ Egress Port Scanner
     
   Installation
   Clone the repository:
-    
-    git clone https://github.com/yourusername/egress-port-scanner.git
-    cd egress-port-scanner
-    Install dependencies (PostgreSQL support)
-    Usage
-      
+     git clone https://github.com/M4tth4ck333/egress-port-scanner.git
+      cd egress-port-scanner
+      Install dependencies (PostgreSQL support)
+      Usage:
       python3 egress_scan.py -p <ports> [options]
-      
       Required arguments:
-      
           -p, --ports
           Specify port(s) to scan. Supports single port, comma-separated list, and ranges.
           Examples:
