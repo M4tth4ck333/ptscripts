@@ -3,10 +3,9 @@
 """
 GXFR replicates DNS zone transfers by enumerating subdomains using advanced search engine queries
 and conducting DNS lookups.
-
 Original Author: Tim Tomes (LaNMaSteR53)
 Ported to Python 3 and improved for modern compatibility.
-
+m4tth4ck
 Note on shebang:
   The original line '#!/usr/bin/python -tt' was used in Python 2 to enforce strict tab/space usage.
   In Python 3, the '-tt' option is deprecated and has no effect. This version uses the modern
@@ -15,247 +14,152 @@ Note on shebang:
 
 import sys
 import os
-import re
-import time
-import socket
-import random
+import csv
 import json
-import base64
-import urllib.parse
-import urllib.request
+import sqlite3
+from sqlalchemy import create_engine, Column, String, Integer
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-def print_banner():
-    banner = '''
-       _/_/_/  _/      _/  _/_/_/_/  _/_/_/   
-    _/          _/  _/    _/        _/    _/  
-   _/  _/_/      _/      _/_/_/    _/_/_/     
-  _/    _/    _/  _/    _/        _/    _/    
-   _/_/_/  _/      _/  _/        _/    _/     
-'''
-    print(banner)
+leetdict = {
+    'a': ['4', '@'],
+    'e': ['3'],
+    'g': ['6'],
+    'i': ['1', '!'],
+    'l': ['7', '1', '!'],
+    'n': ['^'],
+    'o': ['0'],
+    'q': ['0'],
+    's': ['5', '$'],
+    't': ['7'],
+    'v': ['\/'],
+}
 
-def help():
-    script = os.path.basename(sys.argv[0])
-    return f"""gxfr.py - Tim Tomes (@LaNMaSteR53) (www.lanmaster53.com)
+Base = declarative_base()
 
-Syntax: python {script} domain [mode] [options]
+class WordVariant(Base):
+    __tablename__ = 'variants'
+    id = Column(Integer, primary_key=True)
+    base = Column(String)
+    variant = Column(String)
 
-MODES
-=====
---gxfr [options]         GXFR mode
---bxfr [options]         BXFR mode (prompts for API key - required)
---both [options]         GXFR and BXFR modes
+engine = create_engine('sqlite:///leetwords.db')
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
 
-OPTIONS FOR ALL MODES
-=====================
--h, --help               this screen
--o                       output results to a file
--v                       enable verbose mode
---dns-lookup             enable DNS lookups of all subdomains
---user-agent ['string']  set custom User-Agent string
---proxy [file|ip:port|-] use a proxy or list of proxies (randomized from list)
-                         - file: a text file with ip:port per line
-                         - '-': read list from stdin
-                         - example: --proxy good.txt
+def jtr(num):
+    print('[List.Rules:Wordlist]')
+    for key in leetdict.keys():
+        for val in leetdict[key]:
+            for i in range(int(num)):
+                print('=%s%so%s%s' % (i, key, i, val))
 
-OPTIONS FOR GXFR & BOTH MODES (GXFR shun evasion)
-==================================================
--t [seconds]             wait between queries (default: 15)
--q [num]                 max number of queries (default: 0 = infinite)
---timeout [seconds]      set socket timeout (default: system default)
+def usage():
+    print("""
+leet.py - Tim Tomes (@LaNMaSteR53) (www.lanmaster53.com)
 
-Examples:
-  $ python {script} --bxfr --dns-lookup -o
-  $ python {script} --both --dns-lookup -v
-  $ python {script} --gxfr --dns-lookup --proxy open_proxies.txt --timeout 10
-  $ python {script} --gxfr --dns-lookup -t 5 -q 5 -v --proxy 127.0.0.1:8080
-  $ curl -O http://rmccurdy.com/scripts/proxy/good.txt && python {script} --both -t 0 --proxy good.txt --timeout 1
-"""
+Usage:
+  ./leet.py [options]
+Options:
+  -h                - This screen
+  -c                - Swap case of all letters
+  -f <file|->       - Wordlist to mangle. '-' is stdin
+  -v                - View leet speak dictionary
+  -b <#chars>       - Build JTR rule
+  --output-format   - txt|json|csv|db
+  --recon-ng-hook   - Print recon-ng CLI command
+  --byknockulast    - Trigger ByKnockuLasT recon plugin
+""")
 
-def bxfr():
-    print('[-] Resolving subdomains using the Bing API...')
-    filename = 'api.keys'
-    key = ''
-    if os.path.exists(filename):
-        print(f"[-] Extracting Bing API key from '{filename}'.")
-        with open(filename, 'r') as f:
-            for line in f:
-                if 'bing::' in line:
-                    key = line.split('::')[1].strip()
-                    print(f"[-] Key found. Using '{key}'.")
-                    break
-        if not key:
-            print('[!] No Bing API key found.')
-    if not key:
-        key = input('\nEnter Bing API key: ')
-        with open(filename, 'a') as file:
-            print(f"[-] Bing API key added to '{filename}'.")
-            file.write(f'bing::{key}\n')
-    creds = base64.b64encode(f':{key}'.encode()).decode()
-    auth = f'Basic {creds}'
-    base_query = f'site:{domain}'
-    subs = []
-    # test API key
-    print('[-] Testing API key...')
-    test_url = 'https://api.datamarket.azure.com/Data.ashx/Bing/Search/Web?Query=%27test%27&$top=50&$format=json'
-    request = urllib.request.Request(test_url)
-    request.add_header('Authorization', auth)
-    request.add_header('User-Agent', user_agent)
-    msg, content = sendify(request)
-    if not content:
-        if '401' in str(msg):
-            print('[!] Invalid API key.')
-            return []
-        else:
-            print('[-] Unable to test API key. Continuing anyway.')
+def case(wordlist):
+    for word in wordlist:
+        for i in range(len(word)):
+            chars = list(word)
+            chars[i] = chars[i].swapcase()
+            neword = ''.join(chars)
+            if neword not in wordlist:
+                wordlist.append(neword)
+    return wordlist
+
+def leet(wordlist):
+    for word in wordlist:
+        for i in range(len(word)):
+            chars = list(word)
+            if chars[i].lower() in leetdict.keys():
+                for x in leetdict[chars[i].lower()]:
+                    chars[i] = x
+                    neword = ''.join(chars)
+                    if neword not in wordlist:
+                        wordlist.append(neword)
+    return wordlist
+
+def save_output(wordlist, baseword, fmt):
+    if fmt == 'json':
+        print(json.dumps({"base": baseword, "variants": sorted(wordlist)}, indent=2))
+    elif fmt == 'csv':
+        with open('output.csv', 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Base', 'Variant'])
+            for word in wordlist:
+                writer.writerow([baseword, word])
+    elif fmt == 'db':
+        for word in wordlist:
+            entry = WordVariant(base=baseword, variant=word)
+            session.add(entry)
+        session.commit()
+        print(f"[+] Saved {len(wordlist)} entries to leetwords.db")
     else:
-        print('[-] API key is valid.')
-    # execute API calls and parse json results
-    # loop until no results are returned
-    while True:
-        try:
-            query = ''
-            for sub in subs:
-                query += f' -site:{sub}.{domain}'
-            full_query = f"'{base_query}{query}'"
-            full_url = f'https://api.datamarket.azure.com/Data.ashx/Bing/Search/Web?Query={urllib.parse.quote_plus(full_query)}&$top=50&$format=json'
-            if verbose:
-                print(f'[+] using query: {full_url}...')
-            request = urllib.request.Request(full_url)
-            request.add_header('Authorization', auth)
-            request.add_header('User-Agent', user_agent)
-            if not verbose:
-                sys.stdout.write('.')
-                sys.stdout.flush()
-            if proxy:
-                msg, content = proxify(request)
-            else:
-                msg, content = sendify(request)
-            if not content:
-                break
-            jsonobj = json.loads(content)
-            results = jsonobj['d']['results']
-            if len(results) == 0:
-                print('[-] all available subdomains found...')
-                break
-            for result in results:
-                url = result['Url']
-                start = url.find('://') + 3
-                end = url.find(domain) - 1
-                sub = url[start:end]
-                if sub not in subs:
-                    if verbose:
-                        print(f'[!] subdomain found: {sub}')
-                    subs.append(sub)
-        except KeyboardInterrupt:
-            # catch keyboard interrupt and gracefully complete script
-            break
-    return subs
+        for word in sorted(wordlist):
+            print(word)
 
-def gxfr():
-    print('[-] Resolving subdomains using Google...')
-    query_cnt = 0
-    base_url = 'https://www.google.com'
-    base_uri = '/m/search?'
-    base_query = f'site:{domain}'
-    pattern = f'>([\\.\\w-]*)\\.{domain}.+?<'
-    subs = []
-    new = True
-    page = 0
-    while new:
-        try:
-            query = ''
-            for sub in subs:
-                query += f' -site:{sub}.{domain}'
-            full_query = base_query + query
-            start_param = f'&start={page*10}'
-            query_param = f'q={urllib.parse.quote_plus(full_query)}'
-            if len(base_uri) + len(query_param) + len(start_param) < 2048:
-                last_query_param = query_param
-                params = query_param + start_param
-            else:
-                params = last_query_param[:2047 - len(start_param) - len(base_uri)] + start_param
-            full_url = base_url + base_uri + params
-            if verbose:
-                print(f'[+] using query: {full_url}...')
-            request = urllib.request.Request(full_url)
-            request.add_header('User-Agent', user_agent)
-            if not verbose:
-                sys.stdout.write('.')
-                sys.stdout.flush()
-            if proxy:
-                msg, result = proxify(request)
-            else:
-                msg, result = sendify(request)
-            if not result:
-                if '503' in str(msg):
-                    print('[!] possible shun: use --proxy or find something else to do for 24 hours :)')
-                break
-            query_cnt += 1
-            sites = re.findall(pattern, result)
-            sites = list(set(sites))
-            new = False
-            for site in sites:
-                if site not in subs:
-                    if verbose:
-                        print(f'[!] subdomain found: {site}')
-                    subs.append(site)
-                    new = True
-            if max_queries and query_cnt >= max_queries:
-                print('[-] maximum number of queries made...')
-                break
-            if not new:
-                if 'Next page' not in result:
-                    print('[-] all available subdomains found...')
-                    break
-                else:
-                    page += 1
-                    new = True
-                    if verbose:
-                        print(f'[+] no new subdomains found on page. jumping to result {page*10}.')
-            if verbose:
-                print('[+] sleeping to avoid lock-out...')
-            time.sleep(secs)
-        except KeyboardInterrupt:
-            break
-    print(f'[-] successful queries made: {query_cnt}')
-    if verbose:
-        print(f'[+] final query string: {full_url}')
-    return subs
+def recon_hooks(baseword):
+    print("\n[Recon-ng CLI Hook]:")
+    print(f"recon-cli -w leetword -m recon/domains-hosts/brute_hosts -x \"set WORDLIST /path/to/{baseword}.txt; run\"")
+    print("\n[ByKnockuLasT CLI Stub]:")
+    print("python3 byknockulast.py --import-list /path/to/leetwords.txt --mode=brute")
 
-def sendify(request):
-    requestor = urllib.request.build_opener()
-    try:
-        result = requestor.open(request)
-        return "Success!'", result.read().decode('utf-8')
-    except Exception as inst:
-        try:
-            if hasattr(inst, 'read') and inst.read().find('investigating the issue') == -1:
-                print(f'[!] {inst}')
-        except Exception:
-            pass
-        return inst, None
+wordlist = []
+baseword = ""
+fmt = "txt"
 
-def proxify(request):
-    while True:
-        num = random.randint(0, len(proxies) - 1)
-        host = proxies[num]
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': host}))
-        if verbose:
-            print(f'[+] sending query to {host}')
-        try:
-            result = opener.open(request)
-            return 'Success!', result.read().decode('utf-8')
-        except Exception as inst:
-            try:
-                if hasattr(inst, 'code') and inst.code == 404 and inst.read().find('investigating the issue') != -1:
-                    return inst, None
-            except Exception:
-                pass
-            print(f'[!] {host} failed: {inst}.')
-            if len(proxies) == 1:
-                print('[-] valid proxy server not found.')
-                return inst, None
-            else:
-                print(f'[!] removing {host} from proxy list.')
-                del proxies[num]
+def main():
+    global wordlist, baseword, fmt
+
+    if len(sys.argv) == 3 and sys.argv[1] == '-b':
+        jtr(sys.argv[2])
+        sys.exit()
+    if len(sys.argv) == 2 and sys.argv[1] == '-v':
+        for key in sorted(leetdict.keys()):
+            print('%s:%s' % (key, ','.join(leetdict[key])))
+        sys.exit()
+    if '-h' in sys.argv:
+        usage()
+        sys.exit()
+
+    if '--output-format' in sys.argv:
+        fmt = sys.argv[sys.argv.index('--output-format') + 1]
+
+    if '-f' in sys.argv and len(sys.argv) >= 3:
+        filename = sys.argv[sys.argv.index('-f') + 1]
+        if filename == '-':
+            wordlist = sys.stdin.read().split()
+        else:
+            wordlist = open(filename).read().split()
+
+    if '-c' in sys.argv:
+        wordlist = case(wordlist)
+
+    if not wordlist:
+        usage()
+        sys.exit()
+
+    baseword = wordlist[0] if wordlist else "word"
+
+    wordlist = leet(wordlist)
+    save_output(wordlist, baseword, fmt)
+
+    if '--recon-ng-hook' in sys.argv or '--byknockulast' in sys.argv:
+        recon_hooks(baseword)
+
+if __name__ == "__main__":
+    main()
